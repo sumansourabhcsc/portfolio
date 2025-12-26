@@ -18,5 +18,4 @@ def detect_delimiter(sample_bytes: bytes) -> str:
         dialect = csv.Sniffer().sniff(sample, delimiters=";,")
         return dialect.delimiter
     except Exception:
-        # fallback
         return ";" if sample.count(";") > sample.count(",") else ","
