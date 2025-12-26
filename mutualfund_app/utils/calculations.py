@@ -1,43 +1,69 @@
 import pandas as pd
-import numpy as np
 from datetime import datetime
+from utils.xirr import xirr
 
-# Newton-Raphson XIRR
-def xirr(cashflows, dates, guess=0.1):
-    days = [(d - dates[0]).days for d in dates]
 
-    def npv(rate):
-        return sum(cf / ((1 + rate) ** (d / 365)) for cf, d in zip(cashflows, days))
+def compute_fund_metrics(df, nav_df):
+    latest_nav = nav_df["nav"].iloc[-1]
 
-    def d_npv(rate):
-        return sum(-(d/365) * cf / ((1 + rate) ** (1 + d/365)) for cf, d in zip(cashflows, days))
+    df = df.copy()
+    df["Current Value"] = df["Units"] * latest_nav
+    df["Gain"] = df["Current Value"] - df["Amount"]
 
-    rate = guess
-    for _ in range(100):
-        f = npv(rate)
-        df = d_npv(rate)
-        if df == 0:
-            break
-        new_rate = rate - f/df
-        if abs(new_rate - rate) < 1e-6:
-            return new_rate
-        rate = new_rate
-    return rate
+    invested = df["Amount"].sum()
+    current = df["Current Value"].sum()
+    gain = current - invested
+    return_pct = (gain / invested * 100) if invested else 0
 
-def compute_portfolio_xirr(all_funds, total_current, latest_dates):
-    cashflows = []
-    dates = []
+    return {
+        "invested": invested,
+        "current": current,
+        "gain": gain,
+        "return_pct": return_pct,
+        "table": df,
+    }
 
-    for fund_name, df in all_funds:
-        for _, row in df.iterrows():
-            cashflows.append(-float(row["Amount"]))
-            dates.append(pd.to_datetime(row["Date"]))
 
-    final_date = max(latest_dates)
-    cashflows.append(total_current)
-    dates.append(final_date)
+def compute_portfolio_overview(all_funds):
+    total_invested = 0
+    total_current = 0
+    latest_dates = []
+    per_fund_summary = []
 
-    combined = sorted(zip(dates, cashflows), key=lambda x: x[0])
-    dates, cashflows = zip(*combined)
+    for fund_name, code, df in all_funds:
+        nav, nav_date = fetch_latest_nav(code)
+        latest_dates.append(pd.to_datetime(nav_date))
 
-    return xirr(list(cashflows), list(dates))
+        units = df["Units"].sum()
+        invested = df["Amount"].sum()
+        current = units * nav
+        gain = current - invested
+        return_pct = (gain / invested * 100) if invested else 0
+
+        per_fund_summary.append({
+            "Fund": fund_name,
+            "Invested": invested,
+            "Current": current,
+            "Gain": gain,
+            "Return %": return_pct,
+        })
+
+        total_invested += invested
+        total_current += current
+
+    total_gain = total_current - total_invested
+    total_return_pct = (total_gain / total_invested * 100)
+
+    xirr_value = compute_xirr(all_funds, total_current, latest_dates)
+
+    return (
+        {
+            "invested": total_invested,
+            "current": total_current,
+            "gain": total_gain,
+            "return_pct": total_return_pct,
+            "xirr": xirr_value,
+        },
+        pd.DataFrame(per_fund_summary),
+        max(latest_dates),
+    )
